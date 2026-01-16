@@ -1,4 +1,11 @@
-const USE_MOCK_AI = true; // ← set to false later
+// Load environment variables from .env file (if dotenv is installed)
+try {
+    require('dotenv').config();
+} catch (e) {
+    // dotenv not installed, use system environment variables
+}
+
+const USE_MOCK_AI = false; // ← set to false later
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -13,20 +20,32 @@ app.use(express.json());
 
 const MOCK_RESPONSE = {
     Marketing: [
-      "Apply Q1 blue theme",
-      "Strengthen primary CTA for growth focus"
-    ],
-    Product: [
-      "Add Feature X screenshot on slide 3"
+      "Use primary brand blue (avoid dark navy from Q1 assets)",
+      "Set primary CTA to \"Request a Demo\"",
+      "Keep slides 1–3 visually uncluttered with clear value proposition on slide 2",
+      "Ensure text is legible for webinar use and exports cleanly in 16:9 and 1:1",
+      "Use gradients only if subtle and brand-aligned"
     ],
     Legal: [
-      "Insert T&C disclaimer on all slides",
-      "Replace 'guaranteed' with compliant wording"
+      "Add standard T&Cs footer on every slide, including title and closing",
+      "Remove or replace prohibited terms (e.g. \"guaranteed\", \"risk-free\")",
+      "Phrase performance claims as \"based on internal benchmarks\"",
+    ],
+    Product: [
+      "Insert Feature X workflow screenshot on slide 3 (March 18 build only)",
+      "Mention Tool Y integration as complementary, not a replacement",
+      "Ensure all legal content is compliant with the latest regulations"
     ],
     Brand: [
-      "Ensure logo lockup is bottom-right"
+      "Place logo in bottom-right with required clear space",
+      "Do not stretch, recolor, or modify the logo",
+      "Use approved heading type scale (no custom font weights)",
     ],
-    Other: []
+    Other: [
+      "Avoid placing critical content too close to slide edges",
+      "Ensure all content is compliant with the latest regulations",
+      "Do not include any pricing information in the deck"
+    ]
   };
   
 // System prompt for parsing design instructions
@@ -46,10 +65,10 @@ Instructions:
 4. Each task should be a clear, actionable item
 5. Return ONLY valid JSON in the following format (no markdown, no explanations, no code blocks):
 {
-  "Marketing": ["task 1", "task 2"],
-  "Product": ["task 1"],
+  "Marketing": [],
+  "Product": [],
   "Legal": [],
-  "Brand": ["task 1", "task 2"],
+  "Brand": [],
   "Other": []
 }
 
@@ -135,44 +154,63 @@ app.post('/api/parse-instructions', async (req, res) => {
             return;
         }
 
-        const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
         
-        if (!OPENAI_API_KEY) {
+        if (!GEMINI_API_KEY) {
             return res.status(500).json({ 
-                error: 'OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable.' 
+                error: 'Gemini API key is not configured. Please set GEMINI_API_KEY environment variable.' 
             });
         }
 
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        // Combine system prompt and user instructions for Gemini
+        const fullPrompt = `${SYSTEM_PROMPT}\n\n${formatPrompt(instructions)}`;
+
+        // Call Google Gemini API
+        // Using gemini-1.5-flash (stable version)
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+
+
+        
+        const requestBody = {
+            contents: [{
+                parts: [{
+                    text: fullPrompt
+                }]
+            }],
+            generationConfig: {
+                temperature: 0.1, // Keeps the extraction consistent
+                responseMimeType: "application/json" // CRITICAL: Forces pure JSON output
+            }
+        };
+
+        console.log('[Gemini API] Making request to:', apiUrl.replace(GEMINI_API_KEY, '***'));
+        console.log('[Gemini API] Request body (truncated):', JSON.stringify(requestBody).substring(0, 200) + '...');
+
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_API_KEY}`
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    {
-                        role: 'system',
-                        content: SYSTEM_PROMPT
-                    },
-                    {
-                        role: 'user',
-                        content: formatPrompt(instructions)
-                    }
-                ],
-                temperature: 0.3,
-                response_format: { type: 'json_object' }
-            })
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
+            const errorText = await response.text();
+            let errorData;
+            try {
+                errorData = JSON.parse(errorText);
+            } catch (e) {
+                errorData = { error: { message: errorText } };
+            }
+            
             const errorMessage = errorData.error?.message || `API request failed with status ${response.status}`;
             
-            if (response.status === 401) {
+            console.error('[Gemini API] Error response:', errorMessage);
+            console.error('[Gemini API] Full error:', errorText);
+            
+            if (response.status === 401 || response.status === 403) {
                 return res.status(401).json({ 
-                    error: 'Invalid API key. Please check your OPENAI_API_KEY.' 
+                    error: 'Invalid API key. Please check your GEMINI_API_KEY environment variable.' 
                 });
             } else if (response.status === 429) {
                 return res.status(429).json({ 
@@ -180,7 +218,7 @@ app.post('/api/parse-instructions', async (req, res) => {
                 });
             } else if (response.status >= 500) {
                 return res.status(502).json({ 
-                    error: 'OpenAI API server error. Please try again later.' 
+                    error: 'Gemini API server error. Please try again later.' 
                 });
             } else {
                 return res.status(response.status).json({ 
@@ -190,15 +228,50 @@ app.post('/api/parse-instructions', async (req, res) => {
         }
 
         const data = await response.json();
-        const content = data.choices?.[0]?.message?.content;
+        
+        console.log('[Gemini API] Response received, structure:', Object.keys(data));
+        
+        // Handle different response structures
+        let content = null;
+        
+        // Check for candidates array (standard response structure)
+        if (data.candidates && data.candidates.length > 0) {
+            const candidate = data.candidates[0];
+            
+            // Check for content with parts
+            if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+                content = candidate.content.parts[0].text;
+            }
+            
+            // Check for functionCall (if using function calling)
+            if (!content && candidate.content && candidate.content.functionCalls) {
+                // Handle function call response if needed
+                const functionCall = candidate.content.functionCalls[0];
+                if (functionCall && functionCall.args) {
+                    // If function call returns JSON directly, use it
+                    content = JSON.stringify(functionCall.args);
+                }
+            }
+        }
+        
+        // Fallback: check if response is already JSON (some API versions)
+        if (!content && typeof data === 'object' && !data.candidates) {
+            // Response might be direct JSON
+            if (validateJsonStructure(data)) {
+                return res.json(data);
+            }
+        }
         
         if (!content) {
+            console.error('[Gemini API] Unexpected response structure:', JSON.stringify(data, null, 2));
             return res.status(500).json({ 
-                error: 'No content received from OpenAI API.' 
+                error: 'No content received from Gemini API. The response structure was unexpected. Check server logs for details.' 
             });
         }
+        
+        console.log('[Gemini API] Content extracted, length:', content.length);
 
-        // Extract JSON from response
+        // Extract JSON from response (handles cases where Gemini might wrap JSON)
         const jsonString = extractJsonFromResponse(content);
         
         // Parse JSON
@@ -206,8 +279,10 @@ app.post('/api/parse-instructions', async (req, res) => {
         try {
             parsedData = JSON.parse(jsonString);
         } catch (parseError) {
+            console.error('JSON parse error:', parseError.message);
+            console.error('Response content:', content);
             return res.status(500).json({ 
-                error: `Failed to parse JSON response: ${parseError.message}` 
+                error: `Failed to parse JSON response: ${parseError.message}. The API may have returned invalid JSON.` 
             });
         }
 

@@ -5,8 +5,7 @@
     "scripts": {
         "clean": "ccweb-add-on-scripts clean",
         "build": "ccweb-add-on-scripts build",
-        "start": "node server.js",
-        "dev": "ccweb-add-on-scripts start",
+        "start": "ccweb-add-on-scripts start",
         "package": "ccweb-add-on-scripts package",
         "server": "node server.js"
     },
@@ -17,8 +16,9 @@
         "panel"
     ],
     "dependencies": {
-        "express": "^4.18.2",
-        "cors": "^2.8.5"
+        "cors": "^2.8.5",
+        "dotenv": "^16.6.1",
+        "express": "^4.18.2"
     },
     "devDependencies": {
         "@adobe/ccweb-add-on-scripts": "^3.6.0",

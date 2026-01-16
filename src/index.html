@@ -211,6 +211,54 @@
                 margin-bottom: 16px;
             }
 
+            .export-section {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                margin-bottom: 16px;
+                padding: 8px 12px;
+                background-color: #f8f9fa;
+                border: 1px solid #e0e0e0;
+                border-radius: 4px;
+            }
+
+            .export-button {
+                background-color: #fff;
+                border: 1px solid #ddd;
+                color: #333;
+                font-size: 12px;
+                padding: 6px 12px;
+                height: auto;
+                min-height: 32px;
+                flex-shrink: 0;
+            }
+
+            .export-button:hover:not(:disabled) {
+                background-color: #f5f5f5;
+                border-color: #999;
+            }
+
+            .export-button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .department-select {
+                flex: 1;
+                padding: 6px 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 12px;
+                font-family: inherit;
+                background-color: #fff;
+            }
+
+            .department-select:focus {
+                outline: none;
+                border-color: rgb(82, 88, 228);
+                box-shadow: 0 0 0 2px rgba(82, 88, 228, 0.1);
+            }
+
             .task-item {
                 display: flex;
                 flex-direction: row;
@@ -424,10 +472,19 @@
 
             <div class="results-section" id="resultsSection">
                 <div class="progress-indicator" id="progressIndicator">0 / 0 tasks completed</div>
+                
+                <div class="export-section" id="exportSection" style="display: none;">
+                    <button id="exportButton" class="export-button">Export</button>
+                    <select id="departmentSelect" class="department-select">
+                        <option value="">Select department...</option>
+                    </select>
+                </div>
 
                 <div id="departmentGroups"></div>
             </div>
         </div>
+        <!-- jsPDF library for PDF export (lightweight client-side solution) -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
         <script type="module" src="add-on-console-override.js"></script>
         <script type="module" src="index.js"></script>
     </body>

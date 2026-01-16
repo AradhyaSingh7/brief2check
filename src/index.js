@@ -9,11 +9,9 @@ let validationTimer = null;
 // Validation debounce delay (ms)
 const VALIDATION_DEBOUNCE_DELAY = 300;
 
-// Dynamic API base URL: MCP injects window.API_BASE_URL, fallback to empty string for same-origin
-// Empty string means relative URLs (works when UI and API are served from same origin in MCP)
-// For local dev with separate servers, server.js will inject window.API_BASE_URL
-const API_BASE_URL =
-  (typeof window !== 'undefined' && window.API_BASE_URL) || '';
+// Dynamic API base URL: MCP injects window.API_BASE_URL, fallback to localhost for local dev
+// This allows the same code to work in both MCP deployment and local development
+const API_BASE_URL = (typeof window !== 'undefined' && window.API_BASE_URL) || 'http://localhost:3000';
 
 
 // Debug: Log which API base URL is being used (remove in production if desired)
@@ -27,31 +25,15 @@ if (typeof window !== 'undefined') {
  * @param {string} responseText - The raw response text from API
  * @returns {string} - Extracted JSON string
  */
-function extractJsonFromResponse(responseText) {
-    if (!responseText || typeof responseText !== 'string') {
-        throw new Error('Invalid response: expected string content');
+function extractJsonFromResponse(text) {
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+        throw new Error('No JSON object found in Gemini response');
     }
-    
-    // Remove markdown code blocks if present
-    let jsonString = responseText.trim();
-    
-    // Check for markdown code blocks (```json or ```)
-    const jsonBlockMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (jsonBlockMatch) {
-        jsonString = jsonBlockMatch[1].trim();
-    }
-    
-    // Try to find JSON object boundaries if not wrapped in code blocks
-    // Look for first { and last } to extract JSON object
-    const firstBrace = jsonString.indexOf('{');
-    const lastBrace = jsonString.lastIndexOf('}');
-    
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-    }
-    
-    return jsonString;
+    return text.substring(firstBrace, lastBrace + 1);
 }
+
 
 /**
  * Validates the JSON structure matches expected format (accepts strings for backward compatibility)
@@ -400,6 +382,9 @@ function removeTask(department, index) {
     
     // Re-render to update indices
     renderDepartmentGroups(currentData);
+    
+    // Update export section
+    updateExportSection();
 }
 
 /**
@@ -430,6 +415,9 @@ function addTask(department) {
     
     // Re-render to show new task
     renderDepartmentGroups(currentData);
+    
+    // Update export section
+    updateExportSection();
     
     // Focus on the new task input
     setTimeout(() => {
@@ -700,6 +688,526 @@ function renderDepartmentGroups(data) {
     
     // Update progress indicator after rendering
     updateProgressIndicator();
+    
+    // Update export section visibility and department options
+    updateExportSection();
+}
+
+/**
+ * Updates the export section visibility and populates department dropdown
+ */
+function updateExportSection() {
+    const exportSection = document.getElementById('exportSection');
+    const departmentSelect = document.getElementById('departmentSelect');
+    
+    if (!exportSection || !departmentSelect) return;
+    
+    // Show export section if there's data
+    if (currentData && Object.keys(currentData).length > 0) {
+        exportSection.style.display = 'flex';
+        
+        // Clear existing options except the first one
+        departmentSelect.innerHTML = '<option value="">Select department...</option>';
+        
+        // Add departments that have tasks
+        const departmentOrder = ["Marketing", "Product", "Legal", "Brand", "Other"];
+        const departments = Object.keys(currentData).sort((a, b) => {
+            const aIndex = departmentOrder.indexOf(a);
+            const bIndex = departmentOrder.indexOf(b);
+            if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+        });
+        
+        departments.forEach(dept => {
+            if (currentData[dept] && Array.isArray(currentData[dept]) && currentData[dept].length > 0) {
+                const option = document.createElement('option');
+                option.value = dept;
+                option.textContent = dept;
+                departmentSelect.appendChild(option);
+            }
+        });
+        
+        // Reset selection
+        departmentSelect.value = '';
+        updateExportButtonState();
+    } else {
+        exportSection.style.display = 'none';
+    }
+}
+
+/**
+ * Updates the export button enabled/disabled state
+ */
+function updateExportButtonState() {
+    const exportButton = document.getElementById('exportButton');
+    const departmentSelect = document.getElementById('departmentSelect');
+    
+    if (exportButton && departmentSelect) {
+        exportButton.disabled = !departmentSelect.value;
+    }
+}
+
+/**
+ * Generates export text for a specific department
+ * @param {string} department - Department name
+ * @returns {string} - Formatted export text
+ */
+function generateExportText(department) {
+    if (!currentData || !currentData[department] || !Array.isArray(currentData[department])) {
+        return '';
+    }
+    
+    const tasks = currentData[department];
+    if (tasks.length === 0) {
+        return '';
+    }
+    
+    // Get current timestamp
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+    });
+    
+    // Build export text
+    let exportText = `${department}\n`;
+    exportText += `Status as of ${timeString}\n\n`;
+    
+    tasks.forEach((task, index) => {
+        const taskObj = typeof task === 'object' && task !== null && 'text' in task
+            ? task
+            : { text: typeof task === 'string' ? task : String(task), completed: false };
+        
+        const status = taskObj.completed === true ? '✔️ Completed' : '⏳ In progress';
+        exportText += `${index + 1}. ${taskObj.text}\n`;
+        exportText += `   Status: ${status}\n\n`;
+    });
+    
+    return exportText.trim();
+}
+
+/**
+ * Fallback copy to clipboard method for restricted environments
+ * @param {string} text - Text to copy
+ * @returns {boolean} - True if successful
+ */
+function fallbackCopyToClipboard(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+    } catch (err) {
+        document.body.removeChild(textArea);
+        return false;
+    }
+}
+
+/**
+ * Shows export preview modal with checklist status
+ */
+function exportChecklistStatus() {
+    const departmentSelect = document.getElementById('departmentSelect');
+    if (!departmentSelect || !departmentSelect.value) {
+        return;
+    }
+    
+    const department = departmentSelect.value;
+    const exportText = generateExportText(department);
+    
+    if (!exportText) {
+        showError('No tasks found for this department.');
+        return;
+    }
+    
+    // Show preview modal
+    showExportPreviewModal(department, exportText);
+}
+
+/**
+ * Copies text to clipboard with fallback methods
+ * @param {string} text - Text to copy
+ * @returns {Promise<boolean>} - True if successful
+ */
+async function copyToClipboardWithFallback(text) {
+    // Try modern Clipboard API first
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (error) {
+            console.log('Clipboard API failed, trying fallback:', error);
+        }
+    }
+    
+    // Use fallback method if Clipboard API failed or unavailable
+    return fallbackCopyToClipboard(text);
+}
+
+/**
+ * Shows export preview modal with checklist status
+ * @param {string} department - Department name
+ * @param {string} exportText - Generated export text
+ */
+function showExportPreviewModal(department, exportText) {
+    // Remove any existing modal
+    const existingModal = document.getElementById('exportPreviewModal');
+    if (existingModal) {
+        document.body.removeChild(existingModal);
+    }
+    
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'exportPreviewModal';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    `;
+    
+    // Create modal content with fixed header, scrollable content, and fixed footer
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        background: white;
+        border-radius: 8px;
+        max-width: 600px;
+        max-height: 80vh;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+    `;
+    
+    // Header (fixed)
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+        border-bottom: 1px solid #e0e0e0;
+        flex-shrink: 0;
+        background: white;
+    `;
+    
+    const title = document.createElement('h3');
+    title.textContent = department;
+    title.style.cssText = 'margin: 0; font-size: 16px; font-weight: 600; color: rgb(82, 88, 228);';
+    
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '×';
+    closeButton.setAttribute('aria-label', 'Close');
+    closeButton.style.cssText = `
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #666;
+        padding: 0;
+        width: 30px;
+        height: 30px;
+        line-height: 1;
+        transition: color 0.2s;
+    `;
+    closeButton.addEventListener('mouseenter', () => {
+        closeButton.style.color = '#333';
+    });
+    closeButton.addEventListener('mouseleave', () => {
+        closeButton.style.color = '#666';
+    });
+    
+    // Scrollable content area
+    const contentWrapper = document.createElement('div');
+    contentWrapper.style.cssText = `
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        min-height: 0;
+    `;
+    
+    // Preview content (read-only textarea)
+    const preview = document.createElement('textarea');
+    preview.value = exportText;
+    preview.readOnly = true;
+    preview.style.cssText = `
+        width: 100%;
+        min-height: 200px;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 13px;
+        line-height: 1.6;
+        box-sizing: border-box;
+        background-color: #f8f9fa;
+        color: #333;
+        resize: none;
+    `;
+    
+    // Footer (fixed, always visible)
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        padding: 16px 20px;
+        border-top: 1px solid #e0e0e0;
+        flex-shrink: 0;
+        background: white;
+    `;
+    
+    const exportPdfButton = document.createElement('button');
+    exportPdfButton.textContent = 'Export to PDF';
+    exportPdfButton.style.cssText = `
+        background-color: rgb(82, 88, 228);
+        border-color: rgb(82, 88, 228);
+        color: rgb(255, 255, 255);
+        font-size: 13px;
+        padding: 8px 16px;
+        height: auto;
+        min-height: 36px;
+        border-radius: 8px;
+        border-style: solid;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    `;
+    exportPdfButton.addEventListener('mouseenter', () => {
+        exportPdfButton.style.backgroundColor = 'rgb(64, 70, 202)';
+    });
+    exportPdfButton.addEventListener('mouseleave', () => {
+        exportPdfButton.style.backgroundColor = 'rgb(82, 88, 228)';
+    });
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    closeBtn.className = 'secondary-button';
+    closeBtn.style.cssText = `
+        font-size: 13px;
+        padding: 8px 16px;
+        height: auto;
+        min-height: 36px;
+    `;
+    
+    // Export to PDF button handler
+    exportPdfButton.addEventListener('click', () => {
+        exportToPDF(department, exportText);
+    });
+    
+    // Close handlers
+    const closeModal = () => {
+        document.body.removeChild(overlay);
+    };
+    
+    closeButton.addEventListener('click', closeModal);
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closeModal();
+        }
+    });
+    
+    // Close on Escape key
+    const escapeHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+            document.removeEventListener('keydown', escapeHandler);
+        }
+    };
+    document.addEventListener('keydown', escapeHandler);
+    
+    // Assemble modal
+    header.appendChild(title);
+    header.appendChild(closeButton);
+    contentWrapper.appendChild(preview);
+    footer.appendChild(exportPdfButton);
+    footer.appendChild(closeBtn);
+    
+    modal.appendChild(header);
+    modal.appendChild(contentWrapper);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    // Focus preview for easy selection
+    setTimeout(() => {
+        preview.focus();
+    }, 100);
+}
+
+/**
+ * Gets the jsPDF constructor, waiting for it to load if necessary
+ * @returns {Promise<Function>} - The jsPDF constructor
+ */
+function getJsPDF() {
+    return new Promise((resolve, reject) => {
+        // Check if already available
+        let jsPDF;
+        if (window.jspdf && window.jspdf.jsPDF) {
+            jsPDF = window.jspdf.jsPDF;
+        } else if (window.jsPDF) {
+            jsPDF = window.jsPDF;
+        } else if (window.jspdf && typeof window.jspdf === 'function') {
+            jsPDF = window.jspdf;
+        }
+        
+        if (jsPDF) {
+            resolve(jsPDF);
+            return;
+        }
+        
+        // Wait for script to load (max 5 seconds)
+        let attempts = 0;
+        const maxAttempts = 50; // 50 attempts * 100ms = 5 seconds
+        const checkInterval = setInterval(() => {
+            attempts++;
+            if (window.jspdf && window.jspdf.jsPDF) {
+                clearInterval(checkInterval);
+                resolve(window.jspdf.jsPDF);
+            } else if (window.jsPDF) {
+                clearInterval(checkInterval);
+                resolve(window.jsPDF);
+            } else if (window.jspdf && typeof window.jspdf === 'function') {
+                clearInterval(checkInterval);
+                resolve(window.jspdf);
+            } else if (attempts >= maxAttempts) {
+                clearInterval(checkInterval);
+                reject(new Error('jsPDF library failed to load after 5 seconds'));
+            }
+        }, 100);
+    });
+}
+
+/**
+ * Exports checklist status to PDF
+ * @param {string} department - Department name
+ * @param {string} exportText - Generated export text (for reference, but we use currentData directly)
+ */
+async function exportToPDF(department, exportText) {
+    if (!currentData || !currentData[department] || !Array.isArray(currentData[department])) {
+        showError('No tasks found for this department.');
+        return;
+    }
+    
+    try {
+        // Get jsPDF constructor (wait for it to load if necessary)
+        const jsPDF = await getJsPDF();
+        console.log('jsPDF loaded successfully, creating PDF...');
+        
+        // Create new PDF document
+        const doc = new jsPDF();
+    
+        // Set font and margins
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 20;
+        const maxWidth = pageWidth - (margin * 2);
+        let yPosition = margin;
+        
+        // Department name (header)
+        doc.setFontSize(16);
+        doc.setFont(undefined, 'bold');
+        doc.text(department, margin, yPosition);
+        yPosition += 10;
+        
+        // Timestamp
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit',
+            hour12: true 
+        });
+        
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(100, 100, 100);
+        doc.text(`Status as of ${timeString}`, margin, yPosition);
+        yPosition += 15;
+        
+        // Reset text color and font
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'normal');
+        
+        // Get tasks directly from currentData
+        const tasks = currentData[department];
+        
+        if (!tasks || tasks.length === 0) {
+            doc.setFontSize(11);
+            doc.text('No tasks available for this department.', margin, yPosition);
+        } else {
+            // Add tasks to PDF
+            for (const task of tasks) {
+                const taskObj = typeof task === 'object' && task !== null && 'text' in task
+                    ? task
+                    : { text: typeof task === 'string' ? task : String(task), completed: false };
+                
+                // Check if we need a new page
+                if (yPosition > pageHeight - 40) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+                
+                // Task text with icon
+                const statusIcon = taskObj.completed === true ? '✓' : '○';
+                const taskLine = `${statusIcon} ${taskObj.text || '(empty task)'}`;
+                const taskLines = doc.splitTextToSize(taskLine, maxWidth);
+                
+                doc.text(taskLines, margin, yPosition);
+                yPosition += taskLines.length * 6;
+                
+                // Status line (indented, smaller, gray)
+                doc.setFontSize(9);
+                doc.setTextColor(100, 100, 100);
+                const status = taskObj.completed === true ? 'Completed' : 'In progress';
+                const statusText = `  Status: ${status}`;
+                doc.text(statusText, margin, yPosition);
+                yPosition += 8;
+                
+                // Reset for next task
+                doc.setFontSize(11);
+                doc.setTextColor(0, 0, 0);
+                yPosition += 3; // Spacing between tasks
+            }
+        }
+        
+        // Generate filename with timestamp
+        const dateStr = now.toISOString().split('T')[0];
+        const filename = `${department}_Checklist_${dateStr}.pdf`;
+        
+        // Download PDF
+        doc.save(filename);
+        
+        console.log(`PDF exported successfully: ${filename}`);
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        const errorMsg = error.message || 'Unknown error';
+        if (errorMsg.includes('failed to load')) {
+            showError('PDF library is still loading. Please wait a moment and try again.');
+        } else {
+            showError(`Failed to generate PDF: ${errorMsg}`);
+        }
+    }
 }
 
 // Function to show error message
@@ -730,6 +1238,8 @@ addOnUISdk.ready.then(() => {
     const errorMessage = document.getElementById("errorMessage");
     const resultsSection = document.getElementById("resultsSection");
     const departmentGroups = document.getElementById("departmentGroups");
+    const exportButton = document.getElementById("exportButton");
+    const departmentSelect = document.getElementById("departmentSelect");
 
     // Enable parse button when textarea has content
     instructionsInput.addEventListener("input", () => {
@@ -762,6 +1272,9 @@ addOnUISdk.ready.then(() => {
             
             // Render the department groups
             renderDepartmentGroups(parsedData);
+            
+            // Update export section (renderDepartmentGroups already calls updateExportSection, but ensure it's called)
+            updateExportSection();
             
             // Show results section
             resultsSection.classList.add("active");
@@ -796,9 +1309,27 @@ addOnUISdk.ready.then(() => {
     // Expand instructions button handler
     expandInstructionsButton.addEventListener("click", () => {
         expandInstructionInput();
+        // Clear the textarea so user can enter fresh instructions
+        instructionsInput.value = '';
+        // Disable parse button since textarea is now empty
+        parseButton.disabled = true;
         instructionsInput.focus();
     });
 
     // Enable the button when addOnUISdk is ready
     parseButton.disabled = !instructionsInput.value.trim();
+    
+    // Export button handler
+    if (exportButton) {
+        exportButton.addEventListener("click", () => {
+            exportChecklistStatus();
+        });
+    }
+    
+    // Department select change handler
+    if (departmentSelect) {
+        departmentSelect.addEventListener("change", () => {
+            updateExportButtonState();
+        });
+    }
 });
