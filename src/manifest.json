@@ -1,0 +1,21 @@
+{
+    "testId": "d59f4a48-e185-44b4-98cc-961983f93ea7",
+    "name": "Brief2check",
+    "version": "1.0.0",
+    "manifestVersion": 2,
+    "requirements": {
+        "apps": [
+            {
+                "name": "Express",
+                "apiVersion": 1
+            }
+        ]
+    },
+    "entryPoints": [
+        {
+            "type": "panel",
+            "id": "panel1",
+            "main": "index.html"
+        }
+    ]
+}

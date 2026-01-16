@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="Brief2Check - Design Instruction Parser" />
+        <meta name="keywords" content="Adobe, Express, Add-On, JavaScript" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Brief2Check</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                background-color: #f5f5f5;
+                color: #333;
+                overflow-x: hidden;
+                max-width: 100vw;
+            }
+
+            .container {
+                margin: 24px;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                max-width: 100%;
+                overflow-x: hidden;
+            }
+
+            .input-section {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .input-section.collapsed {
+                gap: 8px;
+            }
+
+            .input-section.collapsed label {
+                display: none;
+            }
+
+            .input-section.collapsed textarea {
+                display: none;
+            }
+
+            .input-section.collapsed #parseButton {
+                display: none;
+            }
+
+            .expand-instructions-button {
+                background-color: #f8f9fa;
+                border: 1px solid #e0e0e0;
+                color: #666;
+                font-size: 13px;
+                padding: 8px 12px;
+                height: auto;
+                min-height: 36px;
+            }
+
+            .expand-instructions-button:hover {
+                background-color: #f0f0f0;
+                border-color: #ddd;
+            }
+
+            .input-section label {
+                font-weight: 600;
+                font-size: 14px;
+                color: #333;
+            }
+
+            textarea {
+                width: 100%;
+                min-height: 200px;
+                padding: 12px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                font-family: inherit;
+                font-size: 14px;
+                resize: vertical;
+                background-color: #fff;
+            }
+
+            textarea:focus {
+                outline: none;
+                border-color: rgb(82, 88, 228);
+                box-shadow: 0 0 0 3px rgba(82, 88, 228, 0.1);
+            }
+
+            button {
+                background-color: rgb(82, 88, 228);
+                border-color: rgb(82, 88, 228);
+                border-radius: 8px;
+                border-style: solid;
+                color: rgb(255, 255, 255);
+                font-family: inherit;
+                font-size: 14px;
+                font-weight: 600;
+                height: 40px;
+                padding: 0 20px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+
+            button:disabled {
+                background-color: rgb(177, 177, 177);
+                border-color: rgb(177, 177, 177);
+                cursor: not-allowed;
+            }
+
+            button:not([disabled]):hover {
+                background-color: rgb(64, 70, 202);
+            }
+
+            .secondary-button {
+                background-color: #fff;
+                border-color: #ddd;
+                color: #333;
+            }
+
+            .secondary-button:hover:not(:disabled) {
+                background-color: #f5f5f5;
+            }
+
+            .loading-indicator {
+                display: none;
+                align-items: center;
+                gap: 8px;
+                padding: 12px;
+                background-color: #f0f0f0;
+                border-radius: 8px;
+                font-size: 14px;
+                color: #666;
+            }
+
+            .loading-indicator.active {
+                display: flex;
+            }
+
+            .spinner {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #ddd;
+                border-top-color: rgb(82, 88, 228);
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            }
+
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+
+            .results-section {
+                display: none;
+                flex-direction: column;
+                gap: 20px;
+                max-width: 100%;
+                overflow-x: hidden;
+            }
+
+            .results-section.active {
+                display: flex;
+            }
+
+            .export-buttons {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            .department-group {
+                display: flex;
+                flex-direction: column;
+                margin-bottom: 24px;
+                max-width: 100%;
+                overflow-x: hidden;
+            }
+
+            .department-header {
+                font-size: 14px;
+                font-weight: 600;
+                color: rgb(82, 88, 228);
+                margin: 0 0 8px 0;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #e0e0e0;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .tasks-list {
+                display: flex;
+                flex-direction: column;
+                gap: 0;
+                width: 100%;
+                max-width: 100%;
+                overflow-x: hidden;
+            }
+
+            .progress-indicator {
+                padding: 8px 12px;
+                background-color: #f8f9fa;
+                border: 1px solid #e0e0e0;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 600;
+                color: #666;
+                margin-bottom: 16px;
+            }
+
+            .task-item {
+                display: flex;
+                flex-direction: row;
+                align-items: flex-start;
+                padding: 6px 0;
+                border-bottom: 1px solid #f0f0f0;
+                position: relative;
+                gap: 10px;
+            }
+
+            .task-item:last-child {
+                border-bottom: none;
+            }
+
+            .task-checkbox-wrapper {
+                flex-shrink: 0;
+                padding-top: 2px;
+            }
+
+            .task-checkbox {
+                width: 16px;
+                height: 16px;
+                cursor: pointer;
+                margin: 0;
+                accent-color: rgb(82, 88, 228);
+            }
+
+            .task-text-wrapper {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+                padding-right: 24px;
+            }
+
+            .task-item.task-completed .task-text-input {
+                text-decoration: line-through;
+                color: #999;
+                opacity: 0.7;
+            }
+
+            .task-text-input {
+                width: 100%;
+                min-width: 0;
+                padding: 4px 8px;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                font-family: inherit;
+                font-size: 13px;
+                background-color: transparent;
+                transition: border-color 0.15s, background-color 0.15s;
+                box-sizing: border-box;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                white-space: pre-wrap;
+                resize: none;
+                min-height: 24px;
+                line-height: 1.4;
+                overflow: hidden;
+            }
+
+            .task-text-input:hover {
+                background-color: #f8f9fa;
+            }
+
+            .task-text-input:focus {
+                outline: none;
+                border-color: rgb(82, 88, 228);
+                background-color: #fff;
+                box-shadow: 0 0 0 1px rgba(82, 88, 228, 0.2);
+            }
+
+            .task-text-input.editing {
+                border-color: rgb(82, 88, 228);
+                background-color: #fff;
+                box-shadow: 0 0 0 1px rgba(82, 88, 228, 0.2);
+            }
+
+            .task-text-input.invalid {
+                border-color: #e33;
+                background-color: #fff;
+                box-shadow: 0 0 0 1px rgba(238, 51, 51, 0.2);
+            }
+
+            .task-actions {
+                position: absolute;
+                right: 0;
+                top: 2px;
+                flex-shrink: 0;
+            }
+
+            .task-delete-icon {
+                width: 18px;
+                height: 18px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                color: #999;
+                font-size: 16px;
+                line-height: 1;
+                border: none;
+                background: none;
+                padding: 0;
+                transition: color 0.15s;
+                flex-shrink: 0;
+            }
+
+            .task-delete-icon:hover {
+                color: #e33;
+            }
+
+            .task-delete-icon:active {
+                color: #c00;
+            }
+
+            .validation-message {
+                font-size: 11px;
+                color: #e33;
+                padding: 2px 0 0 0;
+                display: none;
+                margin-top: 2px;
+            }
+
+            .validation-message.show {
+                display: block;
+            }
+
+            .task-status {
+                display: none;
+            }
+
+            .add-task-control {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 0;
+                cursor: pointer;
+                color: #999;
+                font-size: 12px;
+                transition: color 0.15s;
+                margin-left: 26px;
+                user-select: none;
+            }
+
+            .add-task-control:hover {
+                color: rgb(82, 88, 228);
+            }
+
+            .add-task-control:active {
+                color: rgb(64, 70, 202);
+            }
+
+            .add-task-icon {
+                font-size: 13px;
+                line-height: 1;
+                font-weight: normal;
+            }
+
+            .add-task-label {
+                font-size: 12px;
+                line-height: 1.4;
+            }
+
+            .error-message {
+                display: none;
+                padding: 12px;
+                background-color: #fee;
+                border: 1px solid #fcc;
+                border-radius: 8px;
+                color: #c33;
+                font-size: 14px;
+            }
+
+            .error-message.active {
+                display: block;
+            }
+
+            .empty-state {
+                text-align: center;
+                padding: 40px 20px;
+                color: #999;
+                font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- 
+            Please note that this document does not use the spectrum web components theme for Express.
+            You may use "addOnUISdk.app.ui.theme" to get the current theme and style accordingly.
+        -->
+        <div class="container">
+            <div class="input-section" id="inputSection">
+                <label for="instructionsInput">Paste your design instructions:</label>
+                <textarea 
+                    id="instructionsInput" 
+                    placeholder="Paste your unstructured design instructions here..."
+                ></textarea>
+                <button id="parseButton" disabled>Parse Instructions</button>
+                <button id="expandInstructionsButton" class="expand-instructions-button" style="display: none;">➕ Add more instructions</button>
+            </div>
+
+            <div class="loading-indicator" id="loadingIndicator">
+                <div class="spinner"></div>
+                <span>Processing instructions...</span>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="results-section" id="resultsSection">
+                <div class="progress-indicator" id="progressIndicator">0 / 0 tasks completed</div>
+
+                <div id="departmentGroups"></div>
+            </div>
+        </div>
+        <script type="module" src="add-on-console-override.js"></script>
+        <script type="module" src="index.js"></script>
+    </body>
+</html>
