@@ -5,7 +5,7 @@ try {
     // dotenv not installed, use system environment variables
 }
 
-const USE_MOCK_AI = false; // ← set to false later
+const USE_MOCK_AI = true; // ← set to false later
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
